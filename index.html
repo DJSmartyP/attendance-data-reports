@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#54208a" />
+  <title>JAG Attendance Report Generator</title>
+  <meta name="description" content="Generate Junior Adventures Group school attendance Excel and PDF reports from Daily Attendance exports." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="assets/favicon.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <img src="assets/jag-logo.png" alt="Junior Adventures Group" class="brand-logo" />
+      <div>
+        <p class="eyebrow">Junior Adventures Group</p>
+        <h1>Attendance Report Generator</h1>
+        <p class="header-copy">Upload a Daily Attendance export and create a school-ready Excel workbook and branded PDF report.</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="panel upload-panel" aria-labelledby="upload-title">
+      <div class="panel-heading">
+        <div>
+          <p class="step">Step 1</p>
+          <h2 id="upload-title">Upload attendance data</h2>
+        </div>
+        <span class="privacy-pill">Processed on this device</span>
+      </div>
+
+      <label class="drop-zone" id="dropZone" for="fileInput">
+        <input id="fileInput" type="file" accept=".xlsx,.xls" />
+        <span class="upload-icon" aria-hidden="true">↑</span>
+        <strong>Choose an Excel export</strong>
+        <span>or drop the file here</span>
+        <small>Expected format: MagicBooking / Daily Attendance Excel export</small>
+      </label>
+
+      <div id="errorBox" class="message error hidden" role="alert"></div>
+      <div id="successBox" class="message success hidden" role="status"></div>
+    </section>
+
+    <section id="detectedPanel" class="panel hidden" aria-labelledby="detected-title">
+      <div class="panel-heading">
+        <div>
+          <p class="step">Step 2</p>
+          <h2 id="detected-title">Check detected report details</h2>
+        </div>
+        <button id="resetBtn" class="btn btn-quiet" type="button">Use another file</button>
+      </div>
+
+      <div class="detected-grid">
+        <label class="field">
+          <span>School name</span>
+          <input id="schoolName" type="text" autocomplete="off" />
+          <small>Detected from the Centre / School column. You can correct it before generating.</small>
+        </label>
+
+        <div class="data-card">
+          <span class="data-label">Period covered</span>
+          <strong id="periodValue">—</strong>
+          <small>Calculated from the actual attendance records, not the export filter text.</small>
+        </div>
+
+        <div class="data-card">
+          <span class="data-label">Operating days</span>
+          <strong id="daysValue">—</strong>
+          <small>Days containing attendance records in the uploaded file.</small>
+        </div>
+
+        <div class="data-card">
+          <span class="data-label">Attendance entries</span>
+          <strong id="entriesValue">—</strong>
+          <small>Session attendance entries, not a unique-child count.</small>
+        </div>
+      </div>
+
+      <div class="detected-columns">
+        <div>
+          <h3>Programme families</h3>
+          <div id="familyChips" class="chips"></div>
+        </div>
+        <div>
+          <h3>Detected sessions</h3>
+          <div id="sessionChips" class="chips chips-small"></div>
+        </div>
+      </div>
+
+      <details class="preview-details">
+        <summary>Preview weekly attendance data</summary>
+        <div id="previewTableWrap" class="preview-table-wrap"></div>
+      </details>
+    </section>
+
+    <section id="generatePanel" class="panel hidden" aria-labelledby="generate-title">
+      <div class="panel-heading">
+        <div>
+          <p class="step">Step 3</p>
+          <h2 id="generate-title">Generate the report pack</h2>
+        </div>
+      </div>
+
+      <div class="output-grid">
+        <article class="output-card">
+          <div class="output-badge">XLSX</div>
+          <h3>Detailed Excel workbook</h3>
+          <p>Weekly layout matching the established school report, with dynamic session columns, day totals and programme subtotals.</p>
+          <button id="excelBtn" class="btn btn-primary" type="button">Download Excel</button>
+        </article>
+
+        <article class="output-card">
+          <div class="output-badge">PDF</div>
+          <h3>JAG school report</h3>
+          <p>Branded summary followed by a clearly separated weekly table showing attendance against every detected session.</p>
+          <button id="pdfBtn" class="btn btn-secondary" type="button">Download PDF</button>
+        </article>
+
+        <article class="output-card featured">
+          <div class="output-badge">ZIP</div>
+          <h3>Complete report pack</h3>
+          <p>Generate both files together and download a single zip ready to store or send to the school.</p>
+          <button id="packBtn" class="btn btn-dark" type="button">Download report pack</button>
+        </article>
+      </div>
+
+      <div id="progressWrap" class="progress-wrap hidden" aria-live="polite">
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p id="progressText">Preparing report…</p>
+      </div>
+    </section>
+
+    <section class="note-panel">
+      <strong>Privacy:</strong> the spreadsheet is read in your browser. The generator does not upload attendance data to a server.
+    </section>
+  </main>
+
+  <div id="pdfStage" class="pdf-stage" aria-hidden="true"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
