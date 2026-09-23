@@ -140,7 +140,10 @@
       session: findHeaderIndex(headerKeys, ['sessions', 'session']),
       label: findHeaderIndex(headerKeys, ['label', 'sessionlabel']),
       bookingId: findHeaderIndex(headerKeys, ['bookingid', 'booking_id', 'id']),
-      childId: findHeaderIndex(headerKeys, ['childid', 'child_id', 'childreference', 'childref', 'pupilid', 'studentid']),
+      childId: findHeaderIndex(headerKeys, ['childid', 'child_id', 'childreference', 'childref', 'pupilid', 'studentid', 'childnumber', 'childcode', 'participantid', 'attendeeid']),
+      childName: findHeaderIndex(headerKeys, ['childname', 'pupilname', 'studentname', 'participantname', 'attendeename', 'childfullname', 'childsname', 'nameofchild']),
+      childFirst: findHeaderIndex(headerKeys, ['childfirstname', 'childfirst', 'pupilfirstname', 'studentfirstname']),
+      childLast: findHeaderIndex(headerKeys, ['childlastname', 'childsurname', 'childlast', 'pupilsurname', 'studentsurname']),
       date: findHeaderIndex(headerKeys, ['bookeddate', 'bookingdate', 'datebooked', 'attendancedate', 'date']),
       centre: findHeaderIndex(headerKeys, ['centre', 'center', 'school', 'site']),
       dayName: findHeaderIndex(headerKeys, ['dayname', 'day'])
@@ -159,6 +162,8 @@
         label: idx.label >= 0 ? cleanText(row[idx.label]) : '',
         bookingId: idx.bookingId >= 0 ? cleanText(row[idx.bookingId]) || `row-${r + 1}` : `row-${r + 1}`,
         childId: idx.childId >= 0 ? cleanText(row[idx.childId]) : '',
+        childName: idx.childName >= 0 ? cleanText(row[idx.childName]) :
+          idx.childFirst >= 0 && idx.childLast >= 0 ? `${cleanText(row[idx.childFirst])} ${cleanText(row[idx.childLast])}`.trim() : '',
         date,
         centre,
         dayName: idx.dayName >= 0 ? cleanText(row[idx.dayName]) : ''
@@ -254,9 +259,10 @@
     const familyTotals = Object.fromEntries(families.map(f => [f, dates.reduce((sum, d) => sum + familyDaily[f][dateKey(d)], 0)]));
     const sessionTotals = Object.fromEntries(sessions.map(s => [s, dates.reduce((sum, d) => sum + counts[dateKey(d)][s], 0)]));
     const totalAttendance = dates.reduce((sum, d) => sum + dailyTotal[dateKey(d)], 0);
-    const identifiable = records.length > 0 && records.every(r => r.childId);
-    const uniqueChildren = identifiable ? new Set(records.map(r => r.childId)).size : null;
-    const dailyChildren = identifiable ? Object.fromEntries(dates.map(d => [dateKey(d), new Set(records.filter(r => dateKey(r.date) === dateKey(d)).map(r => r.childId)).size])) : null;
+    const identitySource = records.every(r => r.childId) ? 'id' : records.every(r => r.childName) ? 'name' : null;
+    const identityKey = r => identitySource === 'id' ? r.childId : r.childName.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-GB');
+    const uniqueChildren = identitySource ? new Set(records.map(identityKey)).size : null;
+    const dailyChildren = identitySource ? Object.fromEntries(dates.map(d => [dateKey(d), new Set(records.filter(r => dateKey(r.date) === dateKey(d)).map(identityKey)).size])) : null;
     const busiestDay = dates.reduce((best, d) => dailyTotal[dateKey(d)] > dailyTotal[dateKey(best)] ? d : best, dates[0]);
 
     const monthlyMap = new Map();
@@ -281,15 +287,17 @@
       records, school, minDate, maxDate, sessions, sessionMeta, families, familySessions, subtotalFamilies,
       dates, counts, dailyTotal, familyDaily, weeks, familyTotals, sessionTotals, totalAttendance,
       operatingDays: dates.length, averageDaily: totalAttendance / dates.length, busiestDay, monthly, weekday,
-      uniqueChildren, dailyChildren
+      uniqueChildren, dailyChildren, identitySource
     };
   }
 
   // ---------- Detected data UI ----------
   function renderDetected() {
     els.dataNotice.textContent = report.uniqueChildren === null
-      ? 'Unique children cannot be calculated from this export: no complete child identifier column was found. Figures below count session entries, so a child attending twice in a day may contribute two entries.'
-      : `${report.uniqueChildren.toLocaleString()} unique children detected. Session entries still count each booked session separately.`;
+      ? 'No complete child ID or name column was found. The report shows session entries only; an anonymised export needs a stable child identifier to count distinct children.'
+      : report.identitySource === 'name'
+        ? `${report.uniqueChildren.toLocaleString()} distinct child names detected. Children sharing a name may be counted together; use a child ID export for an exact unique-child count.`
+        : `${report.uniqueChildren.toLocaleString()} unique children detected by child ID. Session entries count each booked session separately.`;
     els.schoolName.value = report.school;
     els.periodValue.textContent = `${formatLongDate(report.minDate)} – ${formatLongDate(report.maxDate)}`;
     els.daysValue.textContent = report.operatingDays.toLocaleString();
@@ -397,11 +405,11 @@
       ['Junior Adventures Group | School attendance summary'],
       ['School', currentSchool()],
       ['Period', `${formatLongDate(report.minDate)} to ${formatLongDate(report.maxDate)}`],
-      ['Unique children', report.uniqueChildren ?? 'Unavailable: no complete child identifier'],
+      [report.identitySource === 'name' ? 'Distinct child names' : 'Unique children', report.uniqueChildren ?? 'Unavailable: no complete child identifier'],
       ['Session entries', report.totalAttendance],
       ['Recorded days', report.operatingDays],
       ['Average session entries per recorded day', Number(report.averageDaily.toFixed(1))],
-      ['Average distinct children per recorded day', report.dailyChildren ? Number((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1)) : 'Unavailable'],
+      [report.identitySource === 'name' ? 'Average distinct child names per recorded day' : 'Average distinct children per recorded day', report.dailyChildren ? Number((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1)) : 'Unavailable'],
       [], ['Weekday', 'Recorded days', 'Session entries', 'Average per recorded day'],
       ...report.weekday.map(w => [w.name, w.days, w.total, Number(w.average.toFixed(1))]),
       [], ['Month', 'Recorded days', 'Session entries', 'Average per recorded day'],
@@ -486,9 +494,9 @@
       <h1 class="pdf-title">School Attendance Report</h1>
       <p class="pdf-subtitle"><strong>${escapeHtml(currentSchool())}</strong><br>${escapeHtml(period)}</p>
       <div class="pdf-kpis">
-        ${pdfKpi(report.uniqueChildren === null ? 'Unavailable' : report.uniqueChildren.toLocaleString(), 'Unique children in period')}
+        ${report.uniqueChildren === null ? '' : pdfKpi(report.uniqueChildren.toLocaleString(), report.identitySource === 'name' ? 'Distinct child names in period*' : 'Unique children in period')}
         ${pdfKpi(report.totalAttendance.toLocaleString(), 'Session entries in period')}
-        ${pdfKpi(report.dailyChildren ? (Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1) : 'Unavailable', 'Average distinct children per recorded day')}
+        ${report.dailyChildren ? pdfKpi((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1), report.identitySource === 'name' ? 'Average distinct child names per day*' : 'Average distinct children per recorded day') : ''}
         ${pdfKpi(report.averageDaily.toFixed(1), 'Average session entries per recorded day')}
       </div>
       <h2 class="pdf-section-title">When children attend</h2>
@@ -497,7 +505,7 @@
       ${programmeOverviewTable()}
       <h2 class="pdf-section-title">What the data shows</h2>
       <p class="pdf-body"><strong>${escapeHtml(peakWeekday.name)}</strong> was the busiest weekday on average (${peakWeekday.average.toFixed(1)} session entries per recorded day); <strong>${escapeHtml(quietWeekday.name)}</strong> was the quietest (${quietWeekday.average.toFixed(1)}). The most used session was <strong>${escapeHtml(report.sessionMeta[peakSession].display)}</strong> (${report.sessionTotals[peakSession].toLocaleString()} entries). The highest monthly daily average was in <strong>${escapeHtml(monthYear(peakMonth.date))}</strong> (${(peakMonth.total/peakMonth.days).toFixed(1)}).</p>
-      <p class="pdf-note">Figures represent rows in the supplied booking/attendance export, deduplicated by booking ID within each date and session. They do not establish whether a child attended unless the source export records actual attendance. A recorded day is a date with at least one entry; missing dates are not treated as zero attendance.</p>
+      <p class="pdf-note">Figures represent rows in the supplied booking/attendance export, deduplicated by booking ID within each date and session. ${report.identitySource === 'name' ? '*Distinct names are an estimate: children sharing a name may be counted together. ' : report.identitySource ? '' : 'The export does not contain a complete child ID or name column, so distinct children cannot be counted. '}They do not establish whether a child attended unless the source export records actual attendance. A recorded day is a date with at least one entry; missing dates are not treated as zero attendance.</p>
     `;
     pages.push({ el: p1.el, orientation: 'portrait' });
 
