@@ -8,6 +8,10 @@ It accepts a MagicBooking / Daily Attendance Excel export, detects the reporting
 - a JAG-branded `.pdf` summary with a detailed weekly appendix;
 - an optional `.zip` containing both files.
 
+If an export covers multiple centres, choose the school in the interface. Every output contains only that school's records. Rows with attendance but no centre value are rejected for correction. The Excel workbook includes a school summary and the established detailed attendance sheet; the PDF adds weekday demand, monthly averages and a plain-language summary while retaining JAG branding.
+
+Unique-child and average distinct-children figures appear only when every row for the selected school contains a child identifier (`ChildId`, `ChildReference`, `PupilId` or `StudentId`). Otherwise the report marks those measures unavailable. Session entries remain separate from unique children. Figures describe the supplied booking/attendance export; whether they represent actual attendance depends on the source export. Dates absent from the export are not treated as zero-attendance days.
+
 ## What is detected automatically
 
 The generator does not assume a fixed date range or a fixed set of JAG products. It detects:

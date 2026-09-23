@@ -56,10 +56,15 @@
       </div>
 
       <div class="detected-grid">
+        <label class="field hidden" id="centreField">
+          <span>School in this report</span>
+          <select id="centreSelect"></select>
+          <small>Choose one school. Reports never combine centres.</small>
+        </label>
         <label class="field">
           <span>School name</span>
           <input id="schoolName" type="text" autocomplete="off" />
-          <small>Detected from the Centre / School column. You can correct it before generating.</small>
+          <small>Optional display name for the selected school.</small>
         </label>
 
         <div class="data-card">
@@ -80,6 +85,7 @@
           <small>Session attendance entries, not a unique-child count.</small>
         </div>
       </div>
+      <p id="dataNotice" class="data-notice"></p>
 
       <div class="detected-columns">
         <div>

@@ -10,7 +10,7 @@
   const els = {
     fileInput: $('fileInput'), dropZone: $('dropZone'), errorBox: $('errorBox'), successBox: $('successBox'),
     detectedPanel: $('detectedPanel'), generatePanel: $('generatePanel'), resetBtn: $('resetBtn'),
-    schoolName: $('schoolName'), periodValue: $('periodValue'), daysValue: $('daysValue'), entriesValue: $('entriesValue'),
+    schoolName: $('schoolName'), centreField: $('centreField'), centreSelect: $('centreSelect'), dataNotice: $('dataNotice'), periodValue: $('periodValue'), daysValue: $('daysValue'), entriesValue: $('entriesValue'),
     familyChips: $('familyChips'), sessionChips: $('sessionChips'), previewTableWrap: $('previewTableWrap'),
     excelBtn: $('excelBtn'), pdfBtn: $('pdfBtn'), packBtn: $('packBtn'),
     progressWrap: $('progressWrap'), progressBar: $('progressBar'), progressText: $('progressText'),
@@ -18,6 +18,7 @@
   };
 
   let report = null;
+  let allRecords = [];
   let sourceFileName = '';
 
   // ---------- Upload handling ----------
@@ -40,6 +41,7 @@
   });
 
   els.resetBtn.addEventListener('click', resetApp);
+  els.centreSelect.addEventListener('change', () => selectCentre(els.centreSelect.value));
   els.excelBtn.addEventListener('click', async () => {
     try {
       setBusy(true, 'Creating Excel workbook…', 20);
@@ -84,17 +86,31 @@
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array', cellDates: false, raw: true });
       const parsed = parseAttendanceWorkbook(workbook);
-      report = buildReportModel(parsed.records);
+      allRecords = parsed.records;
+      const centres = [...new Set(allRecords.map(r => r.centre))].sort((a, b) => a.localeCompare(b));
+      els.centreSelect.replaceChildren(...centres.map(name => new Option(name, name)));
+      els.centreField.classList.toggle('hidden', centres.length < 2);
+      selectCentre(centres[0]);
       sourceFileName = file.name;
-      renderDetected();
-      showMessage('success', `Ready: ${report.records.length.toLocaleString()} attendance rows detected from ${file.name}.`);
+      showMessage('success', centres.length > 1
+        ? `Found ${centres.length} schools. Select the school to report on before downloading.`
+        : `Ready: ${report.records.length.toLocaleString()} rows detected from ${file.name}.`);
     } catch (err) {
       report = null;
+      allRecords = [];
       els.detectedPanel.classList.add('hidden');
       els.generatePanel.classList.add('hidden');
       showMessage('error', err.message || 'Could not read this attendance export.');
       console.error(err);
     }
+  }
+
+  function selectCentre(centre) {
+    const rows = allRecords.filter(r => r.centre === centre);
+    if (!rows.length) throw new Error('No attendance rows found for this school.');
+    report = buildReportModel(rows);
+    els.schoolName.value = centre;
+    renderDetected();
   }
 
   function parseAttendanceWorkbook(workbook) {
@@ -124,6 +140,7 @@
       session: findHeaderIndex(headerKeys, ['sessions', 'session']),
       label: findHeaderIndex(headerKeys, ['label', 'sessionlabel']),
       bookingId: findHeaderIndex(headerKeys, ['bookingid', 'booking_id', 'id']),
+      childId: findHeaderIndex(headerKeys, ['childid', 'child_id', 'childreference', 'childref', 'pupilid', 'studentid']),
       date: findHeaderIndex(headerKeys, ['bookeddate', 'bookingdate', 'datebooked', 'attendancedate', 'date']),
       centre: findHeaderIndex(headerKeys, ['centre', 'center', 'school', 'site']),
       dayName: findHeaderIndex(headerKeys, ['dayname', 'day'])
@@ -135,12 +152,15 @@
       const session = cleanText(row[idx.session]);
       const date = parseExcelDate(row[idx.date]);
       if (!session || !date) continue;
+      const centre = cleanText(row[idx.centre]);
+      if (!centre) throw new Error(`Row ${r + 1} has attendance data but no Centre/School value. Correct the export before generating a school report.`);
       records.push({
         session,
         label: idx.label >= 0 ? cleanText(row[idx.label]) : '',
-        bookingId: idx.bookingId >= 0 ? cleanText(row[idx.bookingId]) : `row-${r + 1}`,
+        bookingId: idx.bookingId >= 0 ? cleanText(row[idx.bookingId]) || `row-${r + 1}` : `row-${r + 1}`,
+        childId: idx.childId >= 0 ? cleanText(row[idx.childId]) : '',
         date,
-        centre: cleanText(row[idx.centre]) || 'School',
+        centre,
         dayName: idx.dayName >= 0 ? cleanText(row[idx.dayName]) : ''
       });
     }
@@ -234,6 +254,9 @@
     const familyTotals = Object.fromEntries(families.map(f => [f, dates.reduce((sum, d) => sum + familyDaily[f][dateKey(d)], 0)]));
     const sessionTotals = Object.fromEntries(sessions.map(s => [s, dates.reduce((sum, d) => sum + counts[dateKey(d)][s], 0)]));
     const totalAttendance = dates.reduce((sum, d) => sum + dailyTotal[dateKey(d)], 0);
+    const identifiable = records.length > 0 && records.every(r => r.childId);
+    const uniqueChildren = identifiable ? new Set(records.map(r => r.childId)).size : null;
+    const dailyChildren = identifiable ? Object.fromEntries(dates.map(d => [dateKey(d), new Set(records.filter(r => dateKey(r.date) === dateKey(d)).map(r => r.childId)).size])) : null;
     const busiestDay = dates.reduce((best, d) => dailyTotal[dateKey(d)] > dailyTotal[dateKey(best)] ? d : best, dates[0]);
 
     const monthlyMap = new Map();
@@ -257,12 +280,16 @@
     return {
       records, school, minDate, maxDate, sessions, sessionMeta, families, familySessions, subtotalFamilies,
       dates, counts, dailyTotal, familyDaily, weeks, familyTotals, sessionTotals, totalAttendance,
-      operatingDays: dates.length, averageDaily: totalAttendance / dates.length, busiestDay, monthly, weekday
+      operatingDays: dates.length, averageDaily: totalAttendance / dates.length, busiestDay, monthly, weekday,
+      uniqueChildren, dailyChildren
     };
   }
 
   // ---------- Detected data UI ----------
   function renderDetected() {
+    els.dataNotice.textContent = report.uniqueChildren === null
+      ? 'Unique children cannot be calculated from this export: no complete child identifier column was found. Figures below count session entries, so a child attending twice in a day may contribute two entries.'
+      : `${report.uniqueChildren.toLocaleString()} unique children detected. Session entries still count each booked session separately.`;
     els.schoolName.value = report.school;
     els.periodValue.textContent = `${formatLongDate(report.minDate)} – ${formatLongDate(report.maxDate)}`;
     els.daysValue.textContent = report.operatingDays.toLocaleString();
@@ -366,6 +393,30 @@
     }
 
     const wb = XLSX.utils.book_new();
+    const summaryRows = [
+      ['Junior Adventures Group | School attendance summary'],
+      ['School', currentSchool()],
+      ['Period', `${formatLongDate(report.minDate)} to ${formatLongDate(report.maxDate)}`],
+      ['Unique children', report.uniqueChildren ?? 'Unavailable: no complete child identifier'],
+      ['Session entries', report.totalAttendance],
+      ['Recorded days', report.operatingDays],
+      ['Average session entries per recorded day', Number(report.averageDaily.toFixed(1))],
+      ['Average distinct children per recorded day', report.dailyChildren ? Number((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1)) : 'Unavailable'],
+      [], ['Weekday', 'Recorded days', 'Session entries', 'Average per recorded day'],
+      ...report.weekday.map(w => [w.name, w.days, w.total, Number(w.average.toFixed(1))]),
+      [], ['Month', 'Recorded days', 'Session entries', 'Average per recorded day'],
+      ...report.monthly.map(m => [monthYear(m.date), m.days, m.total, Number((m.total/m.days).toFixed(1))]),
+      [], ['Note', 'Counts reflect the supplied booking/attendance export. Dates absent from the export are not counted as zero.']
+    ];
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+    summarySheet['!cols'] = [{ wch: 46 }, { wch: 54 }, { wch: 21 }, { wch: 27 }];
+    for (const rowNumber of [0, 9, 11 + report.weekday.length]) {
+      for (let c = 0; c < 4; c++) {
+        const cell = summarySheet[XLSX.utils.encode_cell({ r: rowNumber, c })];
+        if (cell) cell.s = { font: { name: 'Montserrat', bold: true, color: { rgb: rowNumber === 0 ? '54208A' : 'FFFFFF' } }, fill: { fgColor: { rgb: rowNumber === 0 ? 'F1EAF7' : '54208A' } } };
+      }
+    }
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'School summary');
     XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
     wb.Props = {
       Title: `${currentSchool()} Attendance Report`,
@@ -429,19 +480,24 @@
     const p1 = createPdfPage('portrait', 1, totalPages, logo, period);
     const peakMonth = report.monthly.reduce((a,b) => (a.total/a.days) > (b.total/b.days) ? a : b);
     const peakWeekday = report.weekday.reduce((a,b) => a.average > b.average ? a : b);
+    const quietWeekday = report.weekday.reduce((a,b) => a.average < b.average ? a : b);
+    const peakSession = report.sessions.reduce((a,b) => report.sessionTotals[a] > report.sessionTotals[b] ? a : b);
     p1.content.innerHTML = `
       <h1 class="pdf-title">School Attendance Report</h1>
       <p class="pdf-subtitle"><strong>${escapeHtml(currentSchool())}</strong><br>${escapeHtml(period)}</p>
       <div class="pdf-kpis">
-        ${pdfKpi(report.totalAttendance.toLocaleString(), 'Attendance entries')}
-        ${pdfKpi(report.operatingDays.toLocaleString(), 'Operating days in export')}
-        ${pdfKpi(report.averageDaily.toFixed(1), 'Average per operating day')}
-        ${pdfKpi(report.dailyTotal[dateKey(report.busiestDay)].toLocaleString(), `Highest day – ${formatShortDate(report.busiestDay)}`)}
+        ${pdfKpi(report.uniqueChildren === null ? 'Unavailable' : report.uniqueChildren.toLocaleString(), 'Unique children in period')}
+        ${pdfKpi(report.totalAttendance.toLocaleString(), 'Session entries in period')}
+        ${pdfKpi(report.dailyChildren ? (Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1) : 'Unavailable', 'Average distinct children per recorded day')}
+        ${pdfKpi(report.averageDaily.toFixed(1), 'Average session entries per recorded day')}
       </div>
+      <h2 class="pdf-section-title">When children attend</h2>
+      ${barChart(report.weekday.map(w => ({ label: w.name, value: w.average })), 'Average session entries per recorded day')}
       <h2 class="pdf-section-title">Programme overview</h2>
       ${programmeOverviewTable()}
-      <h2 class="pdf-section-title">At a glance</h2>
-      <p class="pdf-body">The strongest monthly average in the uploaded period was <strong>${monthYear(peakMonth.date)}</strong> at <strong>${(peakMonth.total/peakMonth.days).toFixed(1)}</strong> attendance entries per operating day. <strong>${escapeHtml(peakWeekday.name)}</strong> was the strongest weekday on average at <strong>${peakWeekday.average.toFixed(1)}</strong>. These figures count attendance entries across bookable sessions and are not a unique-child count.</p>
+      <h2 class="pdf-section-title">What the data shows</h2>
+      <p class="pdf-body"><strong>${escapeHtml(peakWeekday.name)}</strong> was the busiest weekday on average (${peakWeekday.average.toFixed(1)} session entries per recorded day); <strong>${escapeHtml(quietWeekday.name)}</strong> was the quietest (${quietWeekday.average.toFixed(1)}). The most used session was <strong>${escapeHtml(report.sessionMeta[peakSession].display)}</strong> (${report.sessionTotals[peakSession].toLocaleString()} entries). The highest monthly daily average was in <strong>${escapeHtml(monthYear(peakMonth.date))}</strong> (${(peakMonth.total/peakMonth.days).toFixed(1)}).</p>
+      <p class="pdf-note">Figures represent rows in the supplied booking/attendance export, deduplicated by booking ID within each date and session. They do not establish whether a child attended unless the source export records actual attendance. A recorded day is a date with at least one entry; missing dates are not treated as zero attendance.</p>
     `;
     pages.push({ el: p1.el, orientation: 'portrait' });
 
@@ -451,6 +507,7 @@
       <h1 class="pdf-title">Attendance patterns</h1>
       <p class="pdf-subtitle">Monthly and weekday attendance across the detected reporting period.</p>
       <h2 class="pdf-section-title">Monthly attendance</h2>
+      ${barChart(report.monthly.slice(-8).map(m => ({ label: monthYear(m.date), value: m.total/m.days })), 'Average session entries per recorded day (latest eight months)')}
       ${monthlyTable()}
       <h2 class="pdf-section-title">Weekday pattern</h2>
       ${weekdayTable()}
@@ -502,6 +559,11 @@
 
   function pdfKpi(value, label) {
     return `<div class="pdf-kpi"><b>${escapeHtml(value)}</b><span>${escapeHtml(label)}</span></div>`;
+  }
+
+  function barChart(items, caption) {
+    const max = Math.max(...items.map(item => item.value), 1);
+    return `<div class="pdf-chart" role="img" aria-label="${escapeHtml(caption)}"><p>${escapeHtml(caption)}</p>${items.map(item => `<div class="pdf-chart-row"><span>${escapeHtml(item.label)}</span><div class="pdf-chart-track"><div class="pdf-chart-fill" style="width:${(item.value/max*100).toFixed(1)}%"></div></div><b>${item.value.toFixed(1)}</b></div>`).join('')}</div>`;
   }
 
   function programmeOverviewTable() {
@@ -569,6 +631,11 @@
     }
     const text = String(v).trim();
     if (/^\d+(\.\d+)?$/.test(text)) return parseExcelDate(Number(text));
+    const uk = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s.*)?$/);
+    if (uk) {
+      const d = new Date(Number(uk[3]), Number(uk[2]) - 1, Number(uk[1]));
+      return d.getFullYear() === Number(uk[3]) && d.getMonth() === Number(uk[2]) - 1 && d.getDate() === Number(uk[1]) ? d : null;
+    }
     const d = new Date(text);
     return Number.isNaN(d.valueOf()) ? null : stripTime(d);
   }
@@ -669,7 +736,7 @@
   }
   function clearMessages() { els.errorBox.classList.add('hidden'); els.successBox.classList.add('hidden'); }
   function resetApp() {
-    report = null; sourceFileName = ''; els.fileInput.value = '';
+    report = null; allRecords = []; sourceFileName = ''; els.fileInput.value = '';
     els.detectedPanel.classList.add('hidden'); els.generatePanel.classList.add('hidden');
     els.previewTableWrap.innerHTML = ''; clearMessages();
     window.scrollTo({ top: 0, behavior: 'smooth' });
