@@ -347,6 +347,7 @@
     merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: nCols - 1 } });
 
     for (const week of report.weeks) {
+      const peakDayTotal = Math.max(...week.dates.map(d => report.dailyTotal[dateKey(d)]));
       rows.push(headers); rowMeta.push({ type: 'header' });
       for (const d of week.dates) {
         const dk = dateKey(d);
@@ -356,7 +357,7 @@
         }
         row.push(report.dailyTotal[dk]);
         for (const f of report.subtotalFamilies) row.push(report.familyDaily[f][dk]);
-        rows.push(row); rowMeta.push({ type: 'data' });
+        rows.push(row); rowMeta.push({ type: 'data', peakDay: report.dailyTotal[dk] === peakDayTotal });
       }
       rows.push([]); rowMeta.push({ type: 'blank' });
     }
@@ -390,9 +391,17 @@
             alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
             border: { bottom: { style: 'thin', color: { rgb: line } } }
           };
+          if (c === 2 + report.sessions.length) {
+            ws[addr].s.fill = { fgColor: { rgb: 'FFE08A' } };
+            ws[addr].s.font.color = { rgb: purpleDark };
+          }
         } else if (meta.type === 'data') {
           const dayTotalCol = 2 + report.sessions.length;
           if (c === dayTotalCol) ws[addr].s.fill = { fgColor: { rgb: yellowPale } };
+          if (c === dayTotalCol && meta.peakDay) {
+            ws[addr].s.fill = { fgColor: { rgb: 'FFE08A' } };
+            ws[addr].s.font = { name: 'Montserrat', sz: 11, bold: true, color: { rgb: purpleDark } };
+          }
           if (c > dayTotalCol) ws[addr].s.fill = { fgColor: { rgb: 'F7F1FB' } };
         }
       }
@@ -544,6 +553,7 @@
         <h1 class="pdf-week-title">Week commencing ${escapeHtml(formatLongDate(monday))}</h1>
         <div class="pdf-week-meta">${escapeHtml(currentSchool())} &nbsp; | &nbsp; ${escapeHtml(formatShortDate(monday))} – ${escapeHtml(formatShortDate(sunday))} &nbsp; | &nbsp; Week total: <strong>${total.toLocaleString()}</strong> bookings</div>
         ${weeklyTable(week)}
+        ${weeklyHighlights(week)}
         <p class="pdf-note">Booking totals are shown for each recorded day and booking option.</p>
       `;
       pages.push({ el: p.el, orientation: 'landscape' });
@@ -599,6 +609,7 @@
   }
 
   function weeklyTable(week) {
+    const peakDayTotal = Math.max(...week.dates.map(d => report.dailyTotal[dateKey(d)]));
     const totalCols = 2 + report.sessions.length + 1 + report.subtotalFamilies.length;
     const cls = totalCols > 11 ? 'very-compact' : totalCols > 9 ? 'compact' : '';
     const headers = ['Date','Day',...report.sessions.map(s => report.sessionMeta[s].display),'Day total',...report.subtotalFamilies.map(f => `${f} Only`)];
@@ -610,9 +621,19 @@
         return `<td>${report.counts[dk][s]}</td>`;
       }).join('');
       const subtotalCells = report.subtotalFamilies.map(f => `<td class="subtotal-col">${report.familyDaily[f][dk]}</td>`).join('');
-      return `<tr><td>${escapeHtml(formatShortDate(d))}</td><td>${escapeHtml(shortWeekday(d))}</td>${sessionCells}<td class="total-col">${report.dailyTotal[dk]}</td>${subtotalCells}</tr>`;
+      return `<tr><td>${escapeHtml(formatShortDate(d))}</td><td>${escapeHtml(shortWeekday(d))}</td>${sessionCells}<td class="total-col ${report.dailyTotal[dk] === peakDayTotal ? 'peak-cell' : ''}">${report.dailyTotal[dk]}</td>${subtotalCells}</tr>`;
     }).join('');
     return `<table class="pdf-table ${cls}"><thead><tr>${th}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function weeklyHighlights(week) {
+    const peakDay = week.dates.reduce((best, d) => report.dailyTotal[dateKey(d)] > report.dailyTotal[dateKey(best)] ? d : best);
+    const optionTotals = report.sessions.map(s => ({ name: report.sessionMeta[s].display, total: week.dates.reduce((sum, d) => sum + report.counts[dateKey(d)][s], 0) }));
+    const lead = optionTotals.reduce((best, option) => option.total > best.total ? option : best);
+    return `<div class="pdf-week-highlights">
+      <div class="pdf-week-highlight"><span>Highest booking day</span><strong>${escapeHtml(peakDay.toLocaleDateString('en-GB', { weekday: 'long' }))}</strong><small>${report.dailyTotal[dateKey(peakDay)].toLocaleString()} bookings on ${escapeHtml(formatShortDate(peakDay))}</small></div>
+      <div class="pdf-week-highlight"><span>Most booked option</span><strong>${escapeHtml(lead.name)}</strong><small>${lead.total.toLocaleString()} bookings this week</small></div>
+    </div>`;
   }
 
   // ---------- Utilities ----------

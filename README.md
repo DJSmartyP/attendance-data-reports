@@ -10,6 +10,8 @@ It accepts a MagicBooking / Daily Attendance Excel export, detects the reporting
 
 If an export covers multiple centres, choose the school in the interface. Every output contains only that school's records. Rows with attendance but no centre value are rejected for correction. The Excel workbook includes a school summary and the established detailed attendance sheet; the PDF adds weekday demand, monthly averages and a plain-language summary while retaining JAG branding.
 
+Weekly PDF pages emphasise the day-total column and automatically call out the highest booking day and most booked option for that week. The Excel detail sheet also highlights the highest day total in each week.
+
 Unique-child and average distinct-children figures appear when every row for the selected school contains a recognised child ID (`ChildId`, `ChildReference`, `PupilId`, `StudentId` and related variants). If there is no complete ID but every row has a child name (a `ChildName` column or child-specific first and last name columns), the report displays **distinct child names** instead. This is an estimate because children sharing a name may be counted together. If neither source is complete, the PDF omits these cards and explains why. Session entries remain separate from distinct children. Figures describe the supplied booking/attendance export; whether they represent actual attendance depends on the source export. Dates absent from the export are not treated as zero-attendance days.
 
 ## What is detected automatically
