@@ -69,7 +69,7 @@
       const base = baseFileName();
       zip.file(`${base}.xlsx`, xlsxBlob);
       zip.file(`${base}.pdf`, pdfBlob);
-      zip.file('README.txt', `Junior Adventures Group attendance report pack\nSchool: ${currentSchool()}\nPeriod: ${formatLongDate(report.minDate)} to ${formatLongDate(report.maxDate)}\nSource: ${sourceFileName}\n\nGenerated locally in the browser.`);
+      zip.file('README.txt', `Junior Adventures Group booking report pack\nSchool: ${currentSchool()}\nPeriod: ${formatLongDate(report.minDate)} to ${formatLongDate(report.maxDate)}\n\nIncludes the school summary and detailed booking tables.`);
       const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, (meta) => {
         setProgress(92 + Math.round(meta.percent * .08), 'Packaging files…');
       });
@@ -294,10 +294,10 @@
   // ---------- Detected data UI ----------
   function renderDetected() {
     els.dataNotice.textContent = report.uniqueChildren === null
-      ? 'No complete child ID or name column was found. The report shows session entries only; an anonymised export needs a stable child identifier to count distinct children.'
+      ? 'The report shows bookings by day and programme. To include a distinct-child measure, use an export with a child ID or child name column.'
       : report.identitySource === 'name'
         ? `${report.uniqueChildren.toLocaleString()} distinct child names detected. Children sharing a name may be counted together; use a child ID export for an exact unique-child count.`
-        : `${report.uniqueChildren.toLocaleString()} unique children detected by child ID. Session entries count each booked session separately.`;
+        : `${report.uniqueChildren.toLocaleString()} unique children detected by child ID. Bookings are counted by booking option.`;
     els.schoolName.value = report.school;
     els.periodValue.textContent = `${formatLongDate(report.minDate)} – ${formatLongDate(report.maxDate)}`;
     els.daysValue.textContent = report.operatingDays.toLocaleString();
@@ -320,8 +320,7 @@
         html += '<tr>';
         html += `<td>${escapeHtml(formatShortDate(d))}</td><td>${escapeHtml(shortWeekday(d))}</td>`;
         for (const s of report.sessions) {
-          const fam = report.sessionMeta[s].family;
-          html += `<td>${report.familyDaily[fam][dk] === 0 ? 'NA' : report.counts[dk][s]}</td>`;
+          html += `<td>${report.counts[dk][s]}</td>`;
         }
         html += `<td><strong>${report.dailyTotal[dk]}</strong></td>`;
         for (const f of report.subtotalFamilies) html += `<td>${report.familyDaily[f][dk]}</td>`;
@@ -353,8 +352,7 @@
         const dk = dateKey(d);
         const row = [formatOrdinalDate(d, false), shortWeekday(d)];
         for (const s of report.sessions) {
-          const fam = report.sessionMeta[s].family;
-          row.push(report.familyDaily[fam][dk] === 0 ? 'NA' : report.counts[dk][s]);
+          row.push(report.counts[dk][s]);
         }
         row.push(report.dailyTotal[dk]);
         for (const f of report.subtotalFamilies) row.push(report.familyDaily[f][dk]);
@@ -405,20 +403,22 @@
       ['Junior Adventures Group | School attendance summary'],
       ['School', currentSchool()],
       ['Period', `${formatLongDate(report.minDate)} to ${formatLongDate(report.maxDate)}`],
-      [report.identitySource === 'name' ? 'Distinct child names' : 'Unique children', report.uniqueChildren ?? 'Unavailable: no complete child identifier'],
-      ['Session entries', report.totalAttendance],
+      ...(report.uniqueChildren === null ? [] : [[report.identitySource === 'name' ? 'Distinct child names' : 'Unique children', report.uniqueChildren]]),
+      ['Bookings', report.totalAttendance],
       ['Recorded days', report.operatingDays],
-      ['Average session entries per recorded day', Number(report.averageDaily.toFixed(1))],
-      [report.identitySource === 'name' ? 'Average distinct child names per recorded day' : 'Average distinct children per recorded day', report.dailyChildren ? Number((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1)) : 'Unavailable'],
-      [], ['Weekday', 'Recorded days', 'Session entries', 'Average per recorded day'],
+      ['Average bookings per recorded day', Number(report.averageDaily.toFixed(1))],
+      ...(report.dailyChildren ? [[report.identitySource === 'name' ? 'Average distinct child names per recorded day' : 'Average distinct children per recorded day', Number((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1))]] : []),
+      [], ['Weekday', 'Recorded days', 'Bookings', 'Average bookings per recorded day'],
       ...report.weekday.map(w => [w.name, w.days, w.total, Number(w.average.toFixed(1))]),
-      [], ['Month', 'Recorded days', 'Session entries', 'Average per recorded day'],
+      [], ['Month', 'Recorded days', 'Bookings', 'Average bookings per recorded day'],
       ...report.monthly.map(m => [monthYear(m.date), m.days, m.total, Number((m.total/m.days).toFixed(1))]),
-      [], ['Note', 'Counts reflect the supplied booking/attendance export. Dates absent from the export are not counted as zero.']
+      [], ['About this report', 'Bookings are based on the supplied export and dates represented in it.'],
+      ...(report.identitySource === 'name' ? [['Distinct names', 'This measure groups records by child name.']] : [])
     ];
     const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
     summarySheet['!cols'] = [{ wch: 46 }, { wch: 54 }, { wch: 21 }, { wch: 27 }];
-    for (const rowNumber of [0, 9, 11 + report.weekday.length]) {
+    const summaryHeadings = summaryRows.map((row, i) => (row[0] === 'Weekday' || row[0] === 'Month' || i === 0) ? i : -1).filter(i => i >= 0);
+    for (const rowNumber of summaryHeadings) {
       for (let c = 0; c < 4; c++) {
         const cell = summarySheet[XLSX.utils.encode_cell({ r: rowNumber, c })];
         if (cell) cell.s = { font: { name: 'Montserrat', bold: true, color: { rgb: rowNumber === 0 ? '54208A' : 'FFFFFF' } }, fill: { fgColor: { rgb: rowNumber === 0 ? 'F1EAF7' : '54208A' } } };
@@ -488,24 +488,23 @@
     const p1 = createPdfPage('portrait', 1, totalPages, logo, period);
     const peakMonth = report.monthly.reduce((a,b) => (a.total/a.days) > (b.total/b.days) ? a : b);
     const peakWeekday = report.weekday.reduce((a,b) => a.average > b.average ? a : b);
-    const quietWeekday = report.weekday.reduce((a,b) => a.average < b.average ? a : b);
     const peakSession = report.sessions.reduce((a,b) => report.sessionTotals[a] > report.sessionTotals[b] ? a : b);
     p1.content.innerHTML = `
       <h1 class="pdf-title">School Attendance Report</h1>
       <p class="pdf-subtitle"><strong>${escapeHtml(currentSchool())}</strong><br>${escapeHtml(period)}</p>
       <div class="pdf-kpis">
         ${report.uniqueChildren === null ? '' : pdfKpi(report.uniqueChildren.toLocaleString(), report.identitySource === 'name' ? 'Distinct child names in period*' : 'Unique children in period')}
-        ${pdfKpi(report.totalAttendance.toLocaleString(), 'Session entries in period')}
+        ${pdfKpi(report.totalAttendance.toLocaleString(), 'Bookings in period')}
         ${report.dailyChildren ? pdfKpi((Object.values(report.dailyChildren).reduce((a,b) => a+b, 0)/report.operatingDays).toFixed(1), report.identitySource === 'name' ? 'Average distinct child names per day*' : 'Average distinct children per recorded day') : ''}
-        ${pdfKpi(report.averageDaily.toFixed(1), 'Average session entries per recorded day')}
+        ${pdfKpi(report.averageDaily.toFixed(1), 'Average bookings per recorded day')}
       </div>
       <h2 class="pdf-section-title">When children attend</h2>
-      ${barChart(report.weekday.map(w => ({ label: w.name, value: w.average })), 'Average session entries per recorded day')}
+      ${barChart(report.weekday.map(w => ({ label: w.name, value: w.average })), 'Average bookings per recorded day')}
       <h2 class="pdf-section-title">Programme overview</h2>
       ${programmeOverviewTable()}
       <h2 class="pdf-section-title">What the data shows</h2>
-      <p class="pdf-body"><strong>${escapeHtml(peakWeekday.name)}</strong> was the busiest weekday on average (${peakWeekday.average.toFixed(1)} session entries per recorded day); <strong>${escapeHtml(quietWeekday.name)}</strong> was the quietest (${quietWeekday.average.toFixed(1)}). The most used session was <strong>${escapeHtml(report.sessionMeta[peakSession].display)}</strong> (${report.sessionTotals[peakSession].toLocaleString()} entries). The highest monthly daily average was in <strong>${escapeHtml(monthYear(peakMonth.date))}</strong> (${(peakMonth.total/peakMonth.days).toFixed(1)}).</p>
-      <p class="pdf-note">Figures represent rows in the supplied booking/attendance export, deduplicated by booking ID within each date and session. ${report.identitySource === 'name' ? '*Distinct names are an estimate: children sharing a name may be counted together. ' : report.identitySource ? '' : 'The export does not contain a complete child ID or name column, so distinct children cannot be counted. '}They do not establish whether a child attended unless the source export records actual attendance. A recorded day is a date with at least one entry; missing dates are not treated as zero attendance.</p>
+      <p class="pdf-body"><strong>${escapeHtml(peakWeekday.name)}</strong> had the highest average number of bookings (${peakWeekday.average.toFixed(1)} per recorded day). The most popular booking option was <strong>${escapeHtml(report.sessionMeta[peakSession].display)}</strong> (${report.sessionTotals[peakSession].toLocaleString()} bookings). <strong>${escapeHtml(monthYear(peakMonth.date))}</strong> had the highest monthly daily average (${(peakMonth.total/peakMonth.days).toFixed(1)}).</p>
+      <p class="pdf-note">Bookings reflect the supplied export and the dates represented in it. ${report.identitySource === 'name' ? '*Distinct child names are grouped by name. ' : ''}Each booking is counted once per date and booking option.</p>
     `;
     pages.push({ el: p1.el, orientation: 'portrait' });
 
@@ -513,24 +512,24 @@
     const p2 = createPdfPage('portrait', 2, totalPages, logo, period);
     p2.content.innerHTML = `
       <h1 class="pdf-title">Attendance patterns</h1>
-      <p class="pdf-subtitle">Monthly and weekday attendance across the detected reporting period.</p>
+      <p class="pdf-subtitle">Monthly and weekday booking patterns across the reporting period.</p>
       <h2 class="pdf-section-title">Monthly attendance</h2>
-      ${barChart(report.monthly.slice(-8).map(m => ({ label: monthYear(m.date), value: m.total/m.days })), 'Average session entries per recorded day (latest eight months)')}
+      ${barChart(report.monthly.slice(-8).map(m => ({ label: monthYear(m.date), value: m.total/m.days })), 'Average bookings per recorded day (latest eight months)')}
       ${monthlyTable()}
       <h2 class="pdf-section-title">Weekday pattern</h2>
       ${weekdayTable()}
-      <p class="pdf-note">Monthly averages are based only on operating days represented in the uploaded data. Partial months therefore reflect the portion of the month present in the export.</p>
+      <p class="pdf-note">Monthly averages use the recorded dates included in the reporting period.</p>
     `;
     pages.push({ el: p2.el, orientation: 'portrait' });
 
     // Page 3 - session summary
     const p3 = createPdfPage('portrait', 3, totalPages, logo, period);
     p3.content.innerHTML = `
-      <h1 class="pdf-title">Bookable session breakdown</h1>
-      <p class="pdf-subtitle">Attendance entries recorded against each session category detected in the uploaded file.</p>
+      <h1 class="pdf-title">Bookings by option</h1>
+      <p class="pdf-subtitle">Bookings for each option in the reporting period.</p>
       ${sessionBreakdownTable()}
       <h2 class="pdf-section-title">Detailed weekly tables</h2>
-      <p class="pdf-body">The following appendix reproduces the detailed day-by-day structure of the Excel workbook. Each week is clearly separated and shows attendance against every detected session, plus daily and programme totals.</p>
+      <p class="pdf-body">The following pages show bookings by day and option, alongside daily and programme totals.</p>
     `;
     pages.push({ el: p3.el, orientation: 'portrait' });
 
@@ -543,9 +542,9 @@
       const total = week.dates.reduce((sum,d) => sum + report.dailyTotal[dateKey(d)], 0);
       p.content.innerHTML = `
         <h1 class="pdf-week-title">Week commencing ${escapeHtml(formatLongDate(monday))}</h1>
-        <div class="pdf-week-meta">${escapeHtml(currentSchool())} &nbsp; | &nbsp; ${escapeHtml(formatShortDate(monday))} – ${escapeHtml(formatShortDate(sunday))} &nbsp; | &nbsp; Week total: <strong>${total.toLocaleString()}</strong> attendance entries</div>
+        <div class="pdf-week-meta">${escapeHtml(currentSchool())} &nbsp; | &nbsp; ${escapeHtml(formatShortDate(monday))} – ${escapeHtml(formatShortDate(sunday))} &nbsp; | &nbsp; Week total: <strong>${total.toLocaleString()}</strong> bookings</div>
         ${weeklyTable(week)}
-        <p class="pdf-note">Attendance entries are shown by bookable session. “NA” indicates that no attendance was recorded for that programme family on the day.</p>
+        <p class="pdf-note">Booking totals are shown for each recorded day and booking option.</p>
       `;
       pages.push({ el: p.el, orientation: 'landscape' });
     });
@@ -575,7 +574,7 @@
   }
 
   function programmeOverviewTable() {
-    const head = '<tr><th>Programme</th><th>Attendance entries</th><th>Share of total</th><th>Average / day</th></tr>';
+    const head = '<tr><th>Programme</th><th>Bookings</th><th>Share of total</th><th>Average / day</th></tr>';
     const body = report.families.map(f => {
       const total = report.familyTotals[f];
       return `<tr><td>${escapeHtml(f)}</td><td>${total.toLocaleString()}</td><td>${(100*total/report.totalAttendance).toFixed(1)}%</td><td>${(total/report.operatingDays).toFixed(1)}</td></tr>`;
@@ -586,17 +585,17 @@
   function monthlyTable() {
     const famHeads = report.families.map(f => `<th>${escapeHtml(f)}</th>`).join('');
     const rows = report.monthly.map(m => `<tr><td>${escapeHtml(monthYear(m.date))}</td><td>${m.days}</td><td>${m.total.toLocaleString()}</td><td>${(m.total/m.days).toFixed(1)}</td>${report.families.map(f => `<td>${m.families[f].toLocaleString()}</td>`).join('')}</tr>`).join('');
-    return `<table class="pdf-table compact"><thead><tr><th>Month</th><th>Operating days</th><th>Total</th><th>Avg/day</th>${famHeads}</tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="pdf-table compact"><thead><tr><th>Month</th><th>Recorded days</th><th>Bookings</th><th>Avg/day</th>${famHeads}</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function weekdayTable() {
     const rows = report.weekday.map(w => `<tr><td>${escapeHtml(w.name)}</td><td>${w.days}</td><td>${w.total.toLocaleString()}</td><td>${w.average.toFixed(1)}</td></tr>`).join('');
-    return `<table class="pdf-table"><thead><tr><th>Weekday</th><th>Operating days</th><th>Total entries</th><th>Average/day</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="pdf-table"><thead><tr><th>Weekday</th><th>Recorded days</th><th>Bookings</th><th>Average/day</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function sessionBreakdownTable() {
     const rows = report.sessions.map(s => `<tr><td>${escapeHtml(report.sessionMeta[s].family)}</td><td>${escapeHtml(report.sessionMeta[s].display)}</td><td>${report.sessionTotals[s].toLocaleString()}</td><td>${(report.sessionTotals[s]/report.operatingDays).toFixed(1)}</td></tr>`).join('');
-    return `<table class="pdf-table"><thead><tr><th>Programme</th><th>Session</th><th>Attendance entries</th><th>Average/day</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="pdf-table"><thead><tr><th>Programme</th><th>Booking option</th><th>Bookings</th><th>Average/day</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function weeklyTable(week) {
@@ -608,8 +607,7 @@
     const rows = week.dates.map(d => {
       const dk = dateKey(d);
       const sessionCells = report.sessions.map(s => {
-        const fam = report.sessionMeta[s].family;
-        return `<td>${report.familyDaily[fam][dk] === 0 ? 'NA' : report.counts[dk][s]}</td>`;
+        return `<td>${report.counts[dk][s]}</td>`;
       }).join('');
       const subtotalCells = report.subtotalFamilies.map(f => `<td class="subtotal-col">${report.familyDaily[f][dk]}</td>`).join('');
       return `<tr><td>${escapeHtml(formatShortDate(d))}</td><td>${escapeHtml(shortWeekday(d))}</td>${sessionCells}<td class="total-col">${report.dailyTotal[dk]}</td>${subtotalCells}</tr>`;

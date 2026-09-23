@@ -65,9 +65,9 @@ The parser searches for a header row rather than assuming a fixed row number. It
 
 Each unique booking ID is counted once per date and session. If no booking ID is present, the source row is used as the attendance entry.
 
-`Day total` is the sum of all detected session attendance entries on that date. A programme subtotal such as `Stay and Play Only` is created when a programme family contains multiple bookable sessions.
+`Day total` is the sum of all detected bookings on that date. A programme subtotal such as `Stay and Play Only` is created when a programme family contains multiple booking options.
 
-`NA` is shown when a programme family has no attendance entries at all on that day; a zero within an otherwise active programme is shown as `0`.
+`0` is shown for a booking option with no bookings on a recorded day. Dates without any bookings in the export are outside the daily table.
 
 ## Libraries
 
