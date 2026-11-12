@@ -49,7 +49,7 @@
   if (!$('trendTool')) return;
   const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const files=[null,null]; const tickets=[0,0]; let current=null;
-  const exportButtons=()=>['trendDownload','trendExcel','trendPdf'].map($).filter(Boolean);
+  const exportButtons=()=>['trendDownload','trendExcel','trendPdf','trendPack'].map($).filter(Boolean);
   const invalidate=()=>{current=null;$('trendResults').innerHTML='';exportButtons().forEach(b=>b.disabled=true);};
   for(const tab of ['report','trend']) $(tab+'Tab').addEventListener('click',()=>{
     for(const name of ['report','trend']) {$(name+'Tool').classList.toggle('hidden',name!==tab);$(name+'Tab').setAttribute('aria-pressed',String(name===tab));}
@@ -99,12 +99,12 @@
       current={c,insight,mode,futureExcluded:$('trendPast').checked,cutoff:key(new Date())};exportButtons().forEach(b=>b.disabled=false);
     } catch(err) {$('trendError').textContent=err.message;}
   });
-  for(const [id,type] of [['trendExcel','excel'],['trendPdf','pdf']]) {
+  for(const [id,type] of [['trendExcel','excel'],['trendPdf','pdf'],['trendPack','pack']]) {
     $(id)?.addEventListener('click',async()=>{
       if(!current)return;
-      const snapshot=current;exportButtons().forEach(b=>b.disabled=true);$('trendError').textContent='';
+      const snapshot=current;const button=$(id),label=button.textContent;button.textContent='Preparing download…';exportButtons().forEach(b=>b.disabled=true);$('trendError').textContent='';
       try {await window.TrendExports[type](snapshot);} catch(err) {$('trendError').textContent=`Export failed: ${err.message}`;}
-      finally {exportButtons().forEach(b=>b.disabled=!current);}
+      finally {button.textContent=label;exportButtons().forEach(b=>b.disabled=!current);}
     });
   }
   $('trendDownload').addEventListener('click',()=>{

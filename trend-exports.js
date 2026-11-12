@@ -81,5 +81,13 @@
     for(const g of c.scopes)table(`${g.label} - ${s.mode==='week'?'weekly':'monthly'}`,g.periods);
     return doc.output('blob');
   }
-  window.TrendExports={workbook,buildPdf:pdf,excel:s=>{const data=XLSX.write(workbook(s),{bookType:'xlsx',type:'array',cellStyles:true});download(new Blob([data],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),filename(s.c,'xlsx'));},pdf:async s=>download(await pdf(s),filename(s.c,'pdf'))};
+  const excelData=s=>XLSX.write(workbook(s),{bookType:'xlsx',type:'array',cellStyles:true});
+  async function pack(s) {
+    const zip=new JSZip();
+    zip.file(filename(s.c,'xlsx'),excelData(s));
+    zip.file(filename(s.c,'pdf'),await (await pdf(s)).arrayBuffer());
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+    download(blob,filename(s.c,'zip'));
+  }
+  window.TrendExports={workbook,buildPdf:pdf,pack,excel:s=>download(new Blob([excelData(s)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),filename(s.c,'xlsx')),pdf:async s=>download(await pdf(s),filename(s.c,'pdf'))};
 })();
