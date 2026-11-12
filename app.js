@@ -114,6 +114,8 @@
   }
 
   function parseAttendanceWorkbook(workbook) {
+    const summary = parseSummaryWorkbook(workbook);
+    if (summary) return summary;
     let best = null;
     for (const sheetName of workbook.SheetNames) {
       const ws = workbook.Sheets[sheetName];
@@ -173,6 +175,41 @@
     return { ...best, records };
   }
 
+  function parseSummaryWorkbook(workbook) {
+    const records = [];
+    for (const sheetName of workbook.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: null, raw: true });
+      for (let h = 1; h < Math.min(rows.length, 60); h++) {
+        const keys = (rows[h] || []).map(normalizeHeader);
+        const sessionIdx = findHeaderIndex(keys, ['sessions', 'session']);
+        if (sessionIdx < 0) continue;
+        const columns = keys.map((key, col) => ({ col, date: key === 'numberofbookings' ? parseExcelDate(rows[h - 1]?.[col]) : null })).filter(c => c.date);
+        if (!columns.length) continue;
+        const centres = [...new Set(rows.flatMap(row => row.flatMap(value =>
+          [...String(value ?? '').matchAll(/^\s*(?:Centre|Center|School|Site)\s+is\s+(.+?)\s*$/gim)].map(m => m[1].trim())
+        )))];
+        if (centres.length !== 1) throw new Error('This summary export needs exactly one school. Export with a single Centre filter so the school can be identified.');
+        const labelIdx = findHeaderIndex(keys, ['label', 'sessionlabel']);
+        const seen = new Set();
+        for (let r = h + 1; r < rows.length; r++) {
+          const row = rows[r] || [];
+          const session = cleanText(row[sessionIdx]);
+          if (!session || /^applied filters:/i.test(session) || /^(?:grand\s+total|total)$/i.test(session)) continue;
+          if (seen.has(session)) throw new Error(`Duplicate session row: ${session}. Export one row per session to avoid double counting.`);
+          seen.add(session);
+          for (const { col, date } of columns) {
+            const raw = row[col];
+            const count = raw == null || raw === '' ? 0 : Number(raw);
+            if (!Number.isSafeInteger(count) || count < 0) throw new Error(`Invalid booking count in row ${r + 1}, column ${col + 1}. Expected a whole number or a blank.`);
+            records.push({ session, label: labelIdx >= 0 ? cleanText(row[labelIdx]) : '', date, centre: centres[0], count, childId: '', childName: '', bookingId: '', summary: true });
+          }
+        }
+        break;
+      }
+    }
+    return records.length ? { records, summary: true } : null;
+  }
+
   function buildReportModel(records) {
     const centreCounts = countBy(records.map(r => r.centre).filter(Boolean));
     const school = mostCommon(centreCounts) || 'School';
@@ -221,13 +258,17 @@
     const subtotalFamilies = families.filter(f => familySessions[f].length > 1);
 
     const dateSessionIds = new Map();
+    const summaryCounts = new Map();
     for (let i = 0; i < records.length; i++) {
       const r = records[i];
       const dk = dateKey(r.date);
       if (!dateSessionIds.has(dk)) dateSessionIds.set(dk, new Map());
       const sm = dateSessionIds.get(dk);
       if (!sm.has(r.session)) sm.set(r.session, new Set());
-      sm.get(r.session).add(r.bookingId || `row-${i}`);
+      if (r.summary) {
+        const key = JSON.stringify([dk, r.session]);
+        summaryCounts.set(key, (summaryCounts.get(key) || 0) + r.count);
+      } else sm.get(r.session).add(r.bookingId || `row-${i}`);
     }
 
     const dates = Array.from(dateSessionIds.keys()).sort().map(parseDateKey);
@@ -238,7 +279,7 @@
     for (const d of dates) {
       const dk = dateKey(d);
       counts[dk] = {};
-      for (const s of sessions) counts[dk][s] = dateSessionIds.get(dk).get(s)?.size || 0;
+      for (const s of sessions) counts[dk][s] = (dateSessionIds.get(dk).get(s)?.size || 0) + (summaryCounts.get(JSON.stringify([dk, s])) || 0);
       dailyTotal[dk] = sessions.reduce((sum, s) => sum + counts[dk][s], 0);
       for (const fam of families) {
         familyDaily[fam][dk] = familySessions[fam].reduce((sum, s) => sum + counts[dk][s], 0);
@@ -293,7 +334,9 @@
 
   // ---------- Detected data UI ----------
   function renderDetected() {
-    els.dataNotice.textContent = report.uniqueChildren === null
+    els.dataNotice.textContent = report.records.some(r => r.summary)
+      ? 'Summary export: reports use the supplied booking counts. Blank session cells are treated as zero on the dates shown. Future dates represent advance bookings.'
+      : report.uniqueChildren === null
       ? 'The report shows bookings by day and programme. To include a distinct-child measure, use an export with a child ID or child name column.'
       : report.identitySource === 'name'
         ? `${report.uniqueChildren.toLocaleString()} distinct child names detected. Children sharing a name may be counted together; use a child ID export for an exact unique-child count.`
@@ -777,3 +820,4 @@
     if (!logo.complete) await new Promise((resolve,reject) => { logo.onload=resolve; logo.onerror=reject; });
   }
 })();
+
