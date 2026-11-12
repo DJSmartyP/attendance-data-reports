@@ -27,7 +27,7 @@
       return prior && yearOf(d,mode)-yearOf(prior,mode)===offset ? [{old:prior,newer:d}] : [];
     });
     if (!pairs.length) throw new Error('No matching dates found. Try the other comparison view or check the date coverage of both files.');
-    const sum = (model,dates,family) => dates.reduce((n,d)=>n+(family ? model.familyDaily[family]?.[key(d)] || 0 : model.dailyTotal[key(d)]),0);
+    const sum = (model,dates,family) => dates.reduce((n,d)=>n+(family ? (Array.isArray(family)?family:[family]).reduce((v,f)=>v+(model.familyDaily[f]?.[key(d)] || 0),0) : model.dailyTotal[key(d)]),0);
     const metric = (label,ps,family) => {
       const before=sum(old,ps.map(p=>p.old),family), after=sum(newer,ps.map(p=>p.newer),family);
       return {label,days:ps.length,before,after,oldAverage:before/ps.length,newAverage:after/ps.length,delta:after-before};
@@ -38,14 +38,19 @@
       if(!groups.has(g))groups.set(g,[]);groups.get(g).push(p);
     }
     const families=[...new Set([...old.families,...newer.families])];
-    return {old,newer,pairs,total:metric('All bookings',pairs),periods:[...groups].map(([g,ps])=>metric(g,ps)),programmes:families.map(f=>metric(f,pairs,f)),excludedOld:old.dates.length-pairs.length,excludedNew:newer.dates.length-pairs.length};
+    const scopes=[{label:'Rise then Shine (breakfast)',match:s=>/^(risethenshine|breakfast|breakfastclub)$/.test(s)},{label:'Stay and Play',match:s=>s==='stayandplay'},{label:'Whole day',match:null}].map(scope=>{
+      const fs=scope.match?families.filter(f=>scope.match(canonical(f).replace(/[^a-z]/g,''))):null;
+      return {label:scope.label,missing:fs ? !old.families.some(f=>fs.includes(f)) || !newer.families.some(f=>fs.includes(f)) : false,total:metric(scope.label,pairs,fs),periods:[...groups].map(([g,ps])=>metric(g,ps,fs))};
+    });
+    return {old,newer,pairs,scopes,total:metric('Whole day',pairs),periods:[...groups].map(([g,ps])=>metric(g,ps)),programmes:families.map(f=>metric(f,pairs,f)),excludedOld:old.dates.length-pairs.length,excludedNew:newer.dates.length-pairs.length};
   }
   window.AttendanceTrends = {compare,iso,change};
   const $=id=>document.getElementById(id);
   if (!$('trendTool')) return;
   const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const files=[null,null]; const tickets=[0,0]; let current=null;
-  const invalidate=()=>{current=null;$('trendResults').innerHTML='';$('trendDownload').disabled=true;};
+  const exportButtons=()=>['trendDownload','trendExcel','trendPdf'].map($).filter(Boolean);
+  const invalidate=()=>{current=null;$('trendResults').innerHTML='';exportButtons().forEach(b=>b.disabled=true);};
   for(const tab of ['report','trend']) $(tab+'Tab').addEventListener('click',()=>{
     for(const name of ['report','trend']) {$(name+'Tool').classList.toggle('hidden',name!==tab);$(name+'Tab').setAttribute('aria-pressed',String(name===tab));}
   });
@@ -79,6 +84,7 @@
       const range=ds=>`${ds[0].toLocaleDateString('en-GB')} – ${ds[ds.length-1].toLocaleDateString('en-GB')}`;
       const t=c.total;
       const insight=[];
+      c.scopes.forEach(s=>{const r=s.total;insight.push(`${s.label}: ${r.before.toLocaleString()} to ${r.after.toLocaleString()} bookings (${change(r.before,r.after)}); average per matched day ${r.oldAverage.toFixed(1)} to ${r.newAverage.toFixed(1)}.${s.missing?' This programme is absent in at least one file; check coverage or naming before interpreting zero counts.':''}`);});
       insight.push(`Bookings ${t.delta===0?'were unchanged':t.delta>0?'increased':'decreased'} from ${t.before.toLocaleString()} to ${t.after.toLocaleString()} (${change(t.before,t.after)}) across ${t.days} matched dates in each year.`);
       insight.push(`Average bookings per matched day changed from ${t.oldAverage.toFixed(1)} to ${t.newAverage.toFixed(1)}.`);
       const ranked=[...c.programmes].sort((a,b)=>b.delta-a.delta);
@@ -89,9 +95,18 @@
       const table=(title,rows)=>`<h3>${title}</h3><div class="preview-table-wrap"><table class="preview-table"><thead><tr><th>Period / programme</th><th>Matched days / year</th><th>${year(c.old)} bookings</th><th>${year(c.newer)} bookings</th><th>Change</th><th>Change %</th><th>${year(c.old)} avg/day</th><th>${year(c.newer)} avg/day</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escape(r.label)}</td><td>${r.days}</td><td>${r.before}</td><td>${r.after}</td><td>${r.delta>0?'+':''}${r.delta}</td><td>${change(r.before,r.after)}</td><td>${r.oldAverage.toFixed(1)}</td><td>${r.newAverage.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>`;
       const max=Math.max(...c.periods.flatMap(p=>[p.before,p.after]),1);
       $('trendResults').innerHTML=`<h2>${escape(c.old.school)} · ${year(c.old)} to ${year(c.newer)}</h2><p><strong>Earlier year:</strong> ${range(c.pairs.map(p=>p.old))}<br><strong>Later year:</strong> ${range(c.pairs.map(p=>p.newer))}</p><p class="data-notice">${t.days} matched dates per year. Excluded: ${c.excludedOld} earlier-year dates and ${c.excludedNew} later-year dates. ${mode==='week'?'Matched by ISO week number and weekday (Monday–Sunday).':'Matched by calendar month and day. Weekday mix can differ between years.'} Gaps and unmatched dates are excluded. Blank cells in summary exports count as zero. Partial weeks/months contain only matching dates.</p><div class="detected-grid"><div class="data-card"><span class="data-label">Booking change</span><strong>${change(t.before,t.after)}</strong></div><div class="data-card"><span class="data-label">Additional bookings</span><strong>${t.delta>0?'+':''}${t.delta}</strong></div><div class="data-card"><span class="data-label">Earlier avg/day</span><strong>${t.oldAverage.toFixed(1)}</strong></div><div class="data-card"><span class="data-label">Later avg/day</span><strong>${t.newAverage.toFixed(1)}</strong></div></div><h3 style="margin-top:24px">What changed</h3><ul>${insight.map(s=>`<li>${escape(s)}</li>`).join('')}</ul><p>These are booking trends; the export cannot establish the reasons for a change or confirm actual attendance.</p><h3>Booking trend</h3><p>🟣 ${year(c.old)} &nbsp; 🟠 ${year(c.newer)} · total bookings on matched dates</p>${c.periods.map(p=>`<div style="margin:14px 0"><strong>${escape(p.label)}</strong><div style="width:${p.before/max*100}%;min-width:2px;background:#54208a;height:14px" title="${year(c.old)}: ${p.before}"></div><div style="width:${p.after/max*100}%;min-width:2px;background:#ff8a00;height:14px;margin-top:3px" title="${year(c.newer)}: ${p.after}"></div><small>${p.before} → ${p.after} bookings</small></div>`).join('')}${table(mode==='week'?'Week-by-week comparison':'Month-by-month comparison',c.periods)}${table('Programme comparison',c.programmes)}<details class="preview-details"><summary>Check every matched date</summary><div class="preview-table-wrap"><table class="preview-table"><thead><tr><th>Earlier date</th><th>Later date</th><th>Earlier bookings</th><th>Later bookings</th></tr></thead><tbody>${c.pairs.map(p=>`<tr><td>${p.old.toLocaleDateString('en-GB',{weekday:'short',year:'numeric',month:'short',day:'numeric'})}</td><td>${p.newer.toLocaleDateString('en-GB',{weekday:'short',year:'numeric',month:'short',day:'numeric'})}</td><td>${c.old.dailyTotal[key(p.old)]}</td><td>${c.newer.dailyTotal[key(p.newer)]}</td></tr>`).join('')}</tbody></table></div></details>`;
-      current={c,insight,mode};$('trendDownload').disabled=false;
+      $('trendResults').innerHTML+=c.scopes.map(s=>table(`${escape(s.label)} — ${mode==='week'?'weekly':'monthly'} comparison`,s.periods)).join('');
+      current={c,insight,mode,futureExcluded:$('trendPast').checked,cutoff:key(new Date())};exportButtons().forEach(b=>b.disabled=false);
     } catch(err) {$('trendError').textContent=err.message;}
   });
+  for(const [id,type] of [['trendExcel','excel'],['trendPdf','pdf']]) {
+    $(id)?.addEventListener('click',async()=>{
+      if(!current)return;
+      const snapshot=current;exportButtons().forEach(b=>b.disabled=true);$('trendError').textContent='';
+      try {await window.TrendExports[type](snapshot);} catch(err) {$('trendError').textContent=`Export failed: ${err.message}`;}
+      finally {exportButtons().forEach(b=>b.disabled=!current);}
+    });
+  }
   $('trendDownload').addEventListener('click',()=>{
     if(!current)return;
     const {c,insight,mode}=current;
