@@ -25,6 +25,11 @@
   </header>
 
   <main class="shell">
+    <nav class="panel" aria-label="Attendance tools" style="display:flex;gap:12px;flex-wrap:wrap">
+      <button id="reportTab" class="btn btn-primary" aria-pressed="true" type="button">Attendance reports</button>
+      <button id="trendTab" class="btn btn-secondary" aria-pressed="false" type="button">Year-on-year trends</button>
+    </nav>
+    <div id="reportTool">
     <section class="panel upload-panel" aria-labelledby="upload-title">
       <div class="panel-heading">
         <div>
@@ -141,6 +146,21 @@
       </div>
     </section>
 
+    </div>
+    <section id="trendTool" class="panel hidden" aria-labelledby="trendTitle">
+      <p class="step">Compare two years</p>
+      <h2 id="trendTitle">Year-on-year trend tracker</h2>
+      <p>Upload two Daily Attendance exports for the same school in different years. Use either the original detailed export or the new summary format.</p>
+      <div class="detected-columns">
+        <label class="field"><span>File 1</span><input id="trendFile0" type="file" accept=".xlsx,.xls"><small id="trendStatus0" role="status">Choose an export from either year.</small><span>School</span><select id="trendSchool0" aria-label="School in file 1"></select></label><label class="field"><span>File 2</span><input id="trendFile1" type="file" accept=".xlsx,.xls"><small id="trendStatus1" role="status">Choose an export from either year.</small><span>School</span><select id="trendSchool1" aria-label="School in file 2"></select></label>
+      </div>
+      <label class="field" style="margin:18px 0"><span>Compare by</span><select id="trendMode"><option value="month">Month by month · matching calendar months and days</option><option value="week">Week by week · matching ISO week numbers and weekdays</option></select><small>Each file can cover one calendar or school year. Only dates represented in both years are compared; dates outside the overlap are excluded.</small></label>
+      <label style="display:block;margin:18px 0"><input id="trendPast" type="checkbox" checked> Exclude future dates in the later year</label>
+      <button id="trendCompare" type="button" class="btn btn-primary">Compare years</button>
+      <button id="trendDownload" type="button" class="btn btn-secondary" disabled>Download comparison CSV</button>
+      <p id="trendError" role="alert" style="color:var(--error)"></p>
+      <div id="trendResults" aria-live="polite"></div>
+    </section>
     <section class="note-panel">
       <strong>Privacy:</strong> the spreadsheet is read in your browser. The generator does not upload attendance data to a server.
     </section>
@@ -152,6 +172,7 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=20261112-trends"></script>
+  <script src="trends.js?v=20261112"></script>
 </body>
 </html>

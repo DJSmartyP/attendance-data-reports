@@ -819,5 +819,6 @@
     logo.src = 'assets/jag-logo.png';
     if (!logo.complete) await new Promise((resolve,reject) => { logo.onload=resolve; logo.onerror=reject; });
   }
+  window.AttendanceTools = { parseAttendanceWorkbook, buildReportModel };
 })();
 
