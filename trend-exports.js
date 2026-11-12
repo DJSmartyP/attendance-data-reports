@@ -4,18 +4,19 @@
   const purple='54208A', pale='F1EAF7', yellow='FFD21A';
   const key=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const range=ds=>`${ds[0].toLocaleDateString('en-GB')} to ${ds[ds.length-1].toLocaleDateString('en-GB')}`;
-  const headers=['Period','Matched days / year','Earlier bookings','Later bookings','Change','Change %','Earlier avg/day','Later avg/day'];
   const row=r=>[r.label,r.days,r.before,r.after,r.delta,r.before?(r.after-r.before)/r.before:r.after?'No baseline':0,r.oldAverage,r.newAverage];
-  function introduction(s){const {c}=s;return `This report compares ${range(c.pairs.map(p=>p.old))} with ${range(c.pairs.map(p=>p.newer))}, using ${c.pairs.length} matched days in each year. ${s.mode==='week'?'Dates are matched by ISO week number and weekday.':'Dates are matched by calendar month and day; the weekday mix may differ.'} Only matching dates contribute to the comparison.`;}
+  const labels=c=>[window.AttendanceTrends.academicYearLabel(c.pairs.map(p=>p.old)),window.AttendanceTrends.academicYearLabel(c.pairs.map(p=>p.newer))];
+  function introduction(s){const {c}=s,[a,b]=labels(c);return `This report compares ${a} (${range(c.pairs.map(p=>p.old))}) with ${b} (${range(c.pairs.map(p=>p.newer))}), using ${c.pairs.length} matched days in each year. ${s.mode==='week'?'Dates are matched by ISO week number and weekday.':'Dates are matched by calendar month and day; the weekday mix may differ.'} Only matching dates contribute to the comparison.`;}
   function meta(s) {
-    const {c,mode}=s;
-    return [['School',c.old.school],['Earlier file coverage',range(c.old.dates)],['Later file coverage',range(c.newer.dates)],['Earlier dates compared',range(c.pairs.map(p=>p.old))],['Later dates compared',range(c.pairs.map(p=>p.newer))],['Matched dates per year',c.pairs.length],['Excluded earlier / later dates',`${c.excludedOld} / ${c.excludedNew}`],['Date matching',mode==='week'?'Same ISO week number and weekday (Monday–Sunday)':'Same calendar month and day; weekday mix can differ'],['Future dates',s.futureExcluded?`Later-year dates after ${s.cutoff} excluded`:'Included if represented in both files']];
+    const {c,mode}=s;const [a,b]=labels(c);
+    return [['School',c.old.school],[a+' file coverage',range(c.old.dates)],[b+' file coverage',range(c.newer.dates)],[a+' dates compared',range(c.pairs.map(p=>p.old))],[b+' dates compared',range(c.pairs.map(p=>p.newer))],['Matched dates per year',c.pairs.length],['Excluded '+a+' / '+b+' dates',`${c.excludedOld} / ${c.excludedNew}`],['Date matching',mode==='week'?'Same ISO week number and weekday (Monday–Sunday)':'Same calendar month and day; weekday mix can differ'],['Future dates',s.futureExcluded?`${b} dates after ${s.cutoff} excluded`:'Included if represented in both files']];
   }
   const notes='Only matched dates contribute. Gaps and unmatched dates are excluded; blank summary cells count as zero. Partial periods use only matching dates. Whole day is the sum of all booking options, not a distinct-child count. The same child may have breakfast and after-school bookings. Bookings do not confirm attendance or explain the causes of change.';
   function filename(c,ext){return `${c.old.school.replace(/[^a-z0-9]+/gi,'_')}_Year_on_Year_Trends.${ext}`;}
   function download(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);}
   function workbook(s) {
-    const {c,insight}=s;const wb=XLSX.utils.book_new();
+    const {c,insight}=s;const wb=XLSX.utils.book_new();const [a,b]=labels(c);
+    const headers=['Period','Matched days / year',a+' bookings',b+' bookings','Change','Change %',a+' avg/day',b+' avg/day'];
     function sheet(name,rows,widths,headerRow,kind='metrics') {
       const ws=XLSX.utils.aoa_to_sheet(rows);
       ws['!cols']=widths.map(w=>({wch:w}));ws['!rows']=rows.map((r,i)=>({hpt:i===0?30:Math.max(24,Math.ceil(String(r[1]??r[0]??'').length/90)*16)}));
@@ -33,13 +34,14 @@
     sheet('Comparison summary',[['JAG | Year-on-year booking trends'],...meta(s),[],['How to read this report',notes],[],['Key insights'],...insight.map((t,i)=>[`Insight ${i+1}`,t])],[30,110]);
     sheet('Programme overview',[['Like-for-like programme comparison'],headers,...c.scopes.map(g=>row(g.total))],[32,18,20,20,16,22,20,20],1);
     c.scopes.forEach((g,i)=>sheet(['Breakfast trend','Stay and Play trend','Whole day trend'][i],[[g.label+' | '+(s.mode==='week'?'weekly':'monthly')],headers,...g.periods.map(row)],[30,18,20,20,16,22,20,20],1));
-    const dailyHeaders=['Earlier date','Later date',...c.scopes.flatMap(g=>[g.label+' earlier',g.label+' later'])];
+    const dailyHeaders=[a+' date',b+' date',...c.scopes.flatMap(g=>[g.label+' '+a,g.label+' '+b])];
     const count=(m,d,i)=>i===2?m.dailyTotal[key(d)]:m.families.filter(f=>i===0?/^(risethenshine|breakfast|breakfastclub)$/.test(f.toLowerCase().replace(/[^a-z]/g,'')):f.toLowerCase().replace(/[^a-z]/g,'')==='stayandplay').reduce((n,f)=>n+(m.familyDaily[f]?.[key(d)]||0),0);
     sheet('Matched dates',[['Audit of dates and booking counts'],dailyHeaders,...c.pairs.map(p=>[key(p.old),key(p.newer),...c.scopes.flatMap((g,i)=>[count(c.old,p.old,i),count(c.newer,p.newer,i)])])],[18,18,24,24,24,24,24,24],1,'dates');
     return wb;
   }
   async function pdf(s) {
     const {c,insight}=s;const {jsPDF}=window.jspdf;
+    const [a,b]=labels(c);
     const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4',compress:true});
     const logo=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error('Could not load the JAG logo. Please retry.'));img.src='assets/jag-logo.png';});
     let y=0,page=0;
@@ -67,8 +69,8 @@
       doc.setFillColor('#'+purple);doc.rect(15,y,2,40,'F');
       doc.setTextColor('#'+purple);doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text(scope.label,21,y+8);
       doc.setFontSize(18);doc.text(window.AttendanceTrends.change(r.before,r.after),189,y+9,{align:'right'});
-      doc.setFontSize(14);doc.setTextColor('#2C2631');doc.text(`${r.before.toLocaleString()}  to  ${r.after.toLocaleString()} bookings`,21,y+19);
-      doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text(`Average per day: ${r.oldAverage.toFixed(1)}  to  ${r.newAverage.toFixed(1)}`,21,y+27);
+      doc.setFontSize(14);doc.setTextColor('#2C2631');doc.text(`${a}: ${r.before.toLocaleString()}   |   ${b}: ${r.after.toLocaleString()}`,21,y+19);
+      doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text(`Bookings per day: ${a}: ${r.oldAverage.toFixed(1)}   |   ${b}: ${r.newAverage.toFixed(1)}`,21,y+27);
       doc.setFontSize(9);doc.setTextColor('#6D6672');doc.text(scope.missing?'Programme absent in a file - check coverage before interpreting zeros.':`${Math.abs(r.delta).toLocaleString()} ${r.delta<0?'fewer':r.delta>0?'additional':'change in'} bookings across the matched period`,21,y+35);
       y+=46;
     }
@@ -85,11 +87,11 @@
       doc.setTextColor('#2C2631');doc.setFont('helvetica','normal');doc.setFontSize(11);doc.text(lines,21,y+16);y+=h+6;
     }
     cards.forEach(([title,text])=>insightCard(title,text));
-    insightCard('Reading the figures',`Only matched dates count; partial weeks or months use those dates. Blank summary cells count as zero. ${c.excludedOld} earlier-year dates and ${c.excludedNew} later-year dates were excluded. ${s.futureExcluded?'Future dates after '+s.cutoff+' were excluded.':'Future bookings were included where matched.'} These figures describe bookings; they do not establish actual attendance or the reasons for changes.`);
+    insightCard('Reading the figures',`Only matched dates count; partial weeks or months use those dates. Blank summary cells count as zero. ${c.excludedOld} dates from ${a} and ${c.excludedNew} dates from ${b} were excluded. ${s.futureExcluded?'Future dates after '+s.cutoff+' were excluded.':'Future bookings were included where matched.'} These figures describe bookings; they do not establish actual attendance or the reasons for changes.`);
     function table(title,metrics) {
       let first=true;
       const widths=[49,23,30,30,25,34,34,42];
-      function start(){brand(title,true);const hs=['Period','Matched\ndays/year','Earlier\nbookings','Later\nbookings','Change','Change %','Earlier\navg/day','Later\navg/day'];let x=15;doc.setFont('helvetica','bold');doc.setFontSize(9);hs.forEach((h,i)=>{doc.setFillColor('#'+purple);doc.rect(x,y,widths[i],14,'F');doc.setTextColor('#FFFFFF');doc.text(h,x+2,y+5);x+=widths[i];});y+=14;}
+      function start(){brand(title,true);const hs=['Period','Matched\ndays/year',a+'\nbookings',b+'\nbookings','Change','Change %',a+'\navg/day',b+'\navg/day'];let x=15;doc.setFont('helvetica','bold');doc.setFontSize(9);hs.forEach((h,i)=>{doc.setFillColor('#'+purple);doc.rect(x,y,widths[i],14,'F');doc.setTextColor('#FFFFFF');doc.text(h,x+2,y+5);x+=widths[i];});y+=14;}
       start();
       metrics.forEach((r,i)=>{if(y+14>194)start();let x=15;const values=[r.label,r.days,r.before.toLocaleString(),r.after.toLocaleString(),`${r.delta>0?'+':''}${r.delta}`,window.AttendanceTrends.change(r.before,r.after),r.oldAverage.toFixed(1),r.newAverage.toFixed(1)];
         values.forEach((v,j)=>{doc.setFillColor(i%2?'#'+pale:'#FFFFFF');doc.rect(x,y,widths[j],12,'F');doc.setFont('helvetica',j===0?'bold':'normal');doc.setFontSize(9);doc.setTextColor('#2C2631');doc.text(doc.splitTextToSize(String(v),widths[j]-4),x+2,y+5);x+=widths[j];});y+=12;});
