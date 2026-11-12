@@ -6,6 +6,7 @@
   const range=ds=>`${ds[0].toLocaleDateString('en-GB')} to ${ds[ds.length-1].toLocaleDateString('en-GB')}`;
   const headers=['Period','Matched days / year','Earlier bookings','Later bookings','Change','Change %','Earlier avg/day','Later avg/day'];
   const row=r=>[r.label,r.days,r.before,r.after,r.delta,r.before?(r.after-r.before)/r.before:r.after?'No baseline':0,r.oldAverage,r.newAverage];
+  function introduction(s){const {c}=s;return `This report compares ${range(c.pairs.map(p=>p.old))} with ${range(c.pairs.map(p=>p.newer))}, using ${c.pairs.length} matched days in each year. ${s.mode==='week'?'Dates are matched by ISO week number and weekday.':'Dates are matched by calendar month and day; the weekday mix may differ.'} Only matching dates contribute to the comparison.`;}
   function meta(s) {
     const {c,mode}=s;
     return [['School',c.old.school],['Earlier file coverage',range(c.old.dates)],['Later file coverage',range(c.newer.dates)],['Earlier dates compared',range(c.pairs.map(p=>p.old))],['Later dates compared',range(c.pairs.map(p=>p.newer))],['Matched dates per year',c.pairs.length],['Excluded earlier / later dates',`${c.excludedOld} / ${c.excludedNew}`],['Date matching',mode==='week'?'Same ISO week number and weekday (Monday–Sunday)':'Same calendar month and day; weekday mix can differ'],['Future dates',s.futureExcluded?`Later-year dates after ${s.cutoff} excluded`:'Included if represented in both files']];
@@ -58,16 +59,33 @@
       doc.text(lines,15,y);y+=height;
     }
     brand('Year-on-year comparison',false,true);
-    paragraph('Periods, matching method and key findings',12,true);
-    for(const [label,value] of meta(s))paragraph(`${label}: ${value}`,9);
-    paragraph('Like-for-like findings',12,true);
-    // Three programme findings lead the front page; supporting insights follow.
-    insight.slice(0,3).forEach(t=>paragraph(t,10));
-    paragraph('Whole day combines booking entries across all programmes; it is not a count of distinct children.',9);
+    paragraph(introduction(s),11);y+=6;
+    paragraph('At a glance',13,true);y+=2;
+    for(const scope of c.scopes){
+      const r=scope.total;
+      doc.setFillColor('#'+pale);doc.rect(15,y,180,40,'F');
+      doc.setFillColor('#'+purple);doc.rect(15,y,2,40,'F');
+      doc.setTextColor('#'+purple);doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text(scope.label,21,y+8);
+      doc.setFontSize(18);doc.text(window.AttendanceTrends.change(r.before,r.after),189,y+9,{align:'right'});
+      doc.setFontSize(14);doc.setTextColor('#2C2631');doc.text(`${r.before.toLocaleString()}  to  ${r.after.toLocaleString()} bookings`,21,y+19);
+      doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text(`Average per day: ${r.oldAverage.toFixed(1)}  to  ${r.newAverage.toFixed(1)}`,21,y+27);
+      doc.setFontSize(9);doc.setTextColor('#6D6672');doc.text(scope.missing?'Programme absent in a file - check coverage before interpreting zeros.':`${Math.abs(r.delta).toLocaleString()} ${r.delta<0?'fewer':r.delta>0?'additional':'change in'} bookings across the matched period`,21,y+35);
+      y+=46;
+    }
+    y+=3;paragraph('Whole-day totals combine bookings across programmes. A child using breakfast and after-school care contributes to both.',9);
     brand('Insights and interpretation');
-    insight.slice(3).forEach(t=>paragraph(t,11));
-    paragraph('Comparison rules',12,true);paragraph(notes,10);
-    if(c.scopes.some(g=>g.missing))paragraph('At least one programme is absent in a file. Zero bookings can reflect missing coverage or a programme name change; check the source before drawing conclusions.',10,true);
+    const highlights=insight.slice(3).filter(t=>!t.startsWith('Bookings ')&&!t.startsWith('Average bookings'));
+    const whole=c.scopes[2].total;
+    const cards=[['Overall direction',`Whole-day bookings ${whole.delta>0?'increased':whole.delta<0?'decreased':'were unchanged'} from ${whole.before.toLocaleString()} to ${whole.after.toLocaleString()}. Average bookings per matched day changed from ${whole.oldAverage.toFixed(1)} to ${whole.newAverage.toFixed(1)}.`],...highlights.map((t,i)=>[t.includes('largest increase')?'Growth driver':t.includes('largest decrease')?'Area to review':t.includes('strongest change')?'Standout period':'Coverage note',t])];
+    function insightCard(title,text){
+      doc.setFont('helvetica','normal');doc.setFontSize(11);const lines=doc.splitTextToSize(text,166),h=19+lines.length*4.5;
+      if(y+h>265)brand('Insights continued');
+      doc.setFillColor('#'+pale);doc.rect(15,y,180,h,'F');doc.setFillColor('#'+yellow);doc.rect(15,y,2,h,'F');
+      doc.setTextColor('#'+purple);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text(title.toUpperCase(),21,y+8);
+      doc.setTextColor('#2C2631');doc.setFont('helvetica','normal');doc.setFontSize(11);doc.text(lines,21,y+16);y+=h+6;
+    }
+    cards.forEach(([title,text])=>insightCard(title,text));
+    insightCard('Reading the figures',`Only matched dates count; partial weeks or months use those dates. Blank summary cells count as zero. ${c.excludedOld} earlier-year dates and ${c.excludedNew} later-year dates were excluded. ${s.futureExcluded?'Future dates after '+s.cutoff+' were excluded.':'Future bookings were included where matched.'} These figures describe bookings; they do not establish actual attendance or the reasons for changes.`);
     function table(title,metrics) {
       let first=true;
       const widths=[49,23,30,30,25,34,34,42];
